@@ -15,6 +15,7 @@ button{font:inherit;cursor:pointer;border:0;color:inherit;background:none}
 [hidden]{display:none!important}
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 6px}
 .logo{font-size:22px;font-weight:800;letter-spacing:-.5px}.logo i{font-style:normal;color:var(--ind)}
+.sync{font-size:13px;color:var(--mute)}
 .cur{font-size:13px;color:var(--mute);border:1px solid var(--line);border-radius:99px;padding:4px 12px}
 .mbar{display:flex;align-items:center;justify-content:space-between;padding:8px 20px}
 .mbar button{width:40px;height:40px;border-radius:12px;background:var(--card);border:1px solid var(--line);font-size:20px}
@@ -75,9 +76,10 @@ nav button[aria-current=page]{color:#A5B4FC;box-shadow:inset 0 3px 0 var(--ind)}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#fff;color:#0A0F1E;padding:11px 20px;border-radius:99px;font-weight:700;z-index:9}
 @media print{body{background:#fff;color:#000;max-width:none}nav,.mbar,header,.noprint{display:none!important}.card{background:#fff;border:1px solid #ccc}.card small,.sub,.leg span{color:#444}}
 </style>
+<script async src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-<header><div class="logo">Quanti<i>X</i></div><div class="cur">FCFA</div></header>
+<header><div class="logo">Quanti<i>X</i></div><div style="display:flex;align-items:center;gap:10px"><span id="sync" class="sync"></span><div class="cur">FCFA</div></div></header>
 <div class="mbar"><button data-mo="-1" aria-label="Mois précédent">‹</button><b id="mlabel"></b><button data-mo="1" id="mnext" aria-label="Mois suivant">›</button></div>
 <main>
   <section id="v-home"></section>
@@ -114,7 +116,7 @@ var KEY='qx_v1', CATS={dep:['Alimentation','Transport','Logement','Santé','Édu
 var NAME={dep:'Dépense',rev:'Revenu',epa:'Épargne'}, COL=['#6366F1','#10B981','#F59E0B','#EF4444','#06B6D4','#EC4899','#84CC16','#A78BFA'];
 var db={tx:[],bud:{}}, mo=0, kind='dep', cat='';
 try{var s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s&&s.tx)db=s;}catch(e){}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){toast('Enregistrement impossible');}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){toast('Enregistrement impossible');}if(window.touch)window.touch();}
 var $=function(i){return document.getElementById(i)};
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function fmt(n){return Math.round(n).toLocaleString('fr-FR')+' FCFA'}
@@ -234,6 +236,50 @@ document.addEventListener('click',function(e){
   else if(b.id==='b-save'){var v={rev:num($('b-rev').value),dep:num($('b-dep').value),epa:num($('b-epa').value)},n2=Number($('b-rep').value)||0,i;for(i=0;i<=n2;i++)db.bud[mkey(mo+i)]=Object.assign({},v);save();render();toast(n2?'Budget enregistré pour '+(n2+1)+' mois':'Budget enregistré')}
 });
 render();
+</script>
+<script>
+window.addEventListener('load',function(){try{var w=window.Telegram&&window.Telegram.WebApp;if(w){w.ready();w.expand();if(w.setHeaderColor)w.setHeaderColor('#0A0F1E');}}catch(e){}});
+</script>
+<script>
+(function(){
+var SYNC_URL='https://script.google.com/macros/s/AKfycbztNWuboQIU8c6gp-WbmWP7nOqDXEOcp4vNAyUAyXAvF0QKX4BF2Uf4oaFZcTa4_wYe/exec',APP='quantix',TSK='qx_ts',DK='qx_ts_dirty',pushT=null;
+function getState(){return db;}
+function setState(d){db={tx:d.tx||[],bud:d.bud||{}};try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){}render();}
+function hasData(){return db.tx.length>0||Object.keys(db.bud).length>0;}
+function setSync(t){var e=document.getElementById('sync');if(e)e.textContent=t}
+function initData(){var w=window.Telegram&&window.Telegram.WebApp;return(w&&w.initData)||''}
+function api(a,x){var b={app:APP,initData:initData(),action:a};for(var k in x)b[k]=x[k];return fetch(SYNC_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(b)}).then(function(r){return r.json()})}
+function lts(){return Number(localStorage.getItem(TSK)||0)}
+function setTs(v){try{localStorage.setItem(TSK,String(v))}catch(e){}}
+function fail(e){setSync(e instanceof TypeError?'☁ Hors ligne':'☁ Erreur')}
+function push(){
+  if(!initData())return;
+  api('set',{data:JSON.stringify(getState()),updatedAt:lts()}).then(function(r){
+    if(!r.ok)throw new Error(r.error);
+    try{localStorage.removeItem(DK)}catch(e){}
+    setSync('☁ Sauvegardé');
+  }).catch(function(e){try{localStorage.setItem(DK,'1')}catch(x){}fail(e)});
+}
+function pull(){
+  if(!initData()){setSync('');return}
+  setSync('☁ …');
+  api('get').then(function(r){
+    if(!r.ok)throw new Error(r.error);
+    var rec=r.rec,l=lts();
+    if(rec&&rec.updatedAt>l){setState(JSON.parse(rec.data));setTs(rec.updatedAt);setSync('☁ Sauvegardé')}
+    else if((rec&&l>rec.updatedAt)||(!rec&&hasData())){if(!l)setTs(Date.now());push()}
+    else setSync('☁ Sauvegardé');
+  }).catch(fail);
+}
+window.touch=function(){
+  setTs(Date.now());
+  if(!initData())return;
+  setSync('☁ …');clearTimeout(pushT);pushT=setTimeout(push,1500);
+};
+window.addEventListener('load',pull);
+window.addEventListener('online',function(){if(localStorage.getItem(DK))push();else pull()});
+document.addEventListener('visibilitychange',function(){if(!document.hidden)pull()});
+})();
 </script>
 </body>
 </html>
